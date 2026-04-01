@@ -1,4 +1,4 @@
-From 3240b1131e19e08b32d958cd285f56411e423f64 Mon Sep 17 00:00:00 2001
+From 3a50eb3cefaab659b60af4b36e60676d8672637d Mon Sep 17 00:00:00 2001
 From: Daniel Hodges <hodgesd@meta.com>
 Date: Tue, 31 Mar 2026 06:08:42 -0700
 Subject: [PATCH 1/4] sched/minlat: Add minimum-latency scheduling class
@@ -88,11 +88,11 @@ assigns tasks to the new class follows in the next patch.
  kernel/Kconfig.preempt            |   26 +
  kernel/sched/build_policy.c       |    4 +
  kernel/sched/fair.c               |   19 +-
- kernel/sched/minlat.c             | 4828 +++++++++++++++++++++++++++++
+ kernel/sched/minlat.c             | 4831 +++++++++++++++++++++++++++++
  kernel/sched/pelt.c               |   33 +-
  kernel/sched/pelt.h               |   15 +
  kernel/sched/sched.h              |  125 +-
- 10 files changed, 5113 insertions(+), 8 deletions(-)
+ 10 files changed, 5116 insertions(+), 8 deletions(-)
  create mode 100644 kernel/sched/minlat.c
 
 diff --git a/include/asm-generic/vmlinux.lds.h b/include/asm-generic/vmlinux.lds.h
@@ -447,10 +447,10 @@ index bf948db905ed..ce2f63c1eef3 100644
  
 diff --git a/kernel/sched/minlat.c b/kernel/sched/minlat.c
 new file mode 100644
-index 000000000000..248ae0b18b3a
+index 000000000000..cd397993141a
 --- /dev/null
 +++ b/kernel/sched/minlat.c
-@@ -0,0 +1,4828 @@
+@@ -0,0 +1,4831 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Minimum Latency Scheduling Class (SCHED_MINLAT)
@@ -3048,7 +3048,10 @@ index 000000000000..248ae0b18b3a
 +	__put_prev_set_next_dl_server(rq, prev, next);
 +
 +	if (prev != next) {
-+		__put_prev_task_minlat(rq, prev, next);
++		if (prev->sched_class == &minlat_sched_class)
++			__put_prev_task_minlat(rq, prev, next);
++		else
++			prev->sched_class->put_prev_task(rq, prev, next);
 +		__set_next_task_minlat(rq, next, true);
 +	}
 +}
@@ -5043,7 +5046,7 @@ index 000000000000..248ae0b18b3a
 +				 * the task out from under us.  Phase 2 handles
 +				 * these safely with task_rq_lock.
 +				 */
-+				if (p->minlat.sched_delayed)
++				if (p->se.sched_delayed)
 +					continue;
 +
 +				ctx = sched_change_begin(p,

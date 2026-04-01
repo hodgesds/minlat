@@ -1,4 +1,4 @@
-From c01438147271039039bcd6d00d20622417ab0b62 Mon Sep 17 00:00:00 2001
+From a61bed8cde69261ea276140ce990d4f47d420ffd Mon Sep 17 00:00:00 2001
 From: Daniel Hodges <hodgesd@meta.com>
 Date: Tue, 31 Mar 2026 06:10:20 -0700
 Subject: [PATCH 2/4] sched/core: Integrate MINLAT class into core scheduler

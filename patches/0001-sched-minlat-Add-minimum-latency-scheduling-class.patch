@@ -1,7 +1,7 @@
 From 3a50eb3cefaab659b60af4b36e60676d8672637d Mon Sep 17 00:00:00 2001
 From: Daniel Hodges <hodgesd@meta.com>
 Date: Tue, 31 Mar 2026 06:08:42 -0700
-Subject: [PATCH 1/4] sched/minlat: Add minimum-latency scheduling class
+Subject: [PATCH 1/5] sched/minlat: Add minimum-latency scheduling class
 
 Introduce a new scheduler class, SCHED_CLASS_MINLAT, that replaces
 CFS/EEVDF for all fair-class tasks when CONFIG_SCHED_CLASS_MINLAT=y.
@@ -99,14 +99,7 @@ diff --git a/include/asm-generic/vmlinux.lds.h b/include/asm-generic/vmlinux.lds
 index 1e1580febe4b..693cf0bf7e70 100644
 --- a/include/asm-generic/vmlinux.lds.h
 +++ b/include/asm-generic/vmlinux.lds.h
-@@ -149,20 +149,21 @@
-  * The order of the sched class addresses are important, as they are
-  * used to determine the order of the priority of each sched class in
-  * relation to each other.
-  */
- #define SCHED_DATA				\
- 	STRUCT_ALIGN();				\
- 	__sched_class_highest = .;		\
+@@ -156,6 +156,7 @@
  	*(__stop_sched_class)			\
  	*(__dl_sched_class)			\
  	*(__rt_sched_class)			\
@@ -114,25 +107,11 @@ index 1e1580febe4b..693cf0bf7e70 100644
  	*(__fair_sched_class)			\
  	*(__ext_sched_class)			\
  	*(__idle_sched_class)			\
- 	__sched_class_lowest = .;
- 
- /* The actual configuration determine if the init/exit sections
-  * are handled as text/data or they can be discarded (which
-  * often happens at runtime)
-  */
- 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index a7b4a980eb2f..81305c51f943 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -741,20 +741,86 @@ struct sched_dl_entity {
- #ifdef CONFIG_RT_MUTEXES
- 	/*
- 	 * Priority Inheritance. When a DEADLINE scheduling entity is boosted
- 	 * pi_se points to the donor, otherwise points to the dl_se it belongs
- 	 * to (the original one/itself).
- 	 */
- 	struct sched_dl_entity *pi_se;
+@@ -748,6 +748,72 @@ struct sched_dl_entity {
  #endif
  };
  
@@ -205,21 +184,7 @@ index a7b4a980eb2f..81305c51f943 100644
  #ifdef CONFIG_UCLAMP_TASK
  /* Number of utilization clamp buckets (shorter alias) */
  #define UCLAMP_BUCKETS CONFIG_UCLAMP_BUCKETS_COUNT
- 
- /*
-  * Utilization clamp for a scheduling entity
-  * @value:		clamp value "assigned" to a se
-  * @bucket_id:		bucket index corresponding to the "assigned" value
-  * @active:		the se is currently refcounted in a rq's bucket
-  * @user_defined:	the requested clamp value comes from user-space
-@@ -867,20 +933,23 @@ struct task_struct {
- 	int				static_prio;
- 	int				normal_prio;
- 	unsigned int			rt_priority;
- 
- 	struct sched_entity		se;
- 	struct sched_rt_entity		rt;
- 	struct sched_dl_entity		dl;
+@@ -874,6 +940,9 @@ struct task_struct {
  	struct sched_dl_entity		*dl_server;
  #ifdef CONFIG_SCHED_CLASS_EXT
  	struct sched_ext_entity		scx;
@@ -229,25 +194,11 @@ index a7b4a980eb2f..81305c51f943 100644
  #endif
  	const struct sched_class	*sched_class;
  
- #ifdef CONFIG_SCHED_CORE
- 	struct rb_node			core_node;
- 	unsigned long			core_cookie;
- 	unsigned int			core_occupation;
- #endif
- 
- #ifdef CONFIG_CGROUP_SCHED
 diff --git a/include/uapi/linux/sched.h b/include/uapi/linux/sched.h
 index 359a14cc76a4..4854fabcace7 100644
 --- a/include/uapi/linux/sched.h
 +++ b/include/uapi/linux/sched.h
-@@ -112,20 +112,21 @@ struct clone_args {
-  * Scheduling policies
-  */
- #define SCHED_NORMAL		0
- #define SCHED_FIFO		1
- #define SCHED_RR		2
- #define SCHED_BATCH		3
- /* SCHED_ISO: reserved but not implemented yet */
+@@ -119,6 +119,7 @@ struct clone_args {
  #define SCHED_IDLE		5
  #define SCHED_DEADLINE		6
  #define SCHED_EXT		7
@@ -255,25 +206,11 @@ index 359a14cc76a4..4854fabcace7 100644
  
  /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
  #define SCHED_RESET_ON_FORK     0x40000000
- 
- /*
-  * For the sched_{set,get}attr() calls
-  */
- #define SCHED_FLAG_RESET_ON_FORK	0x01
- #define SCHED_FLAG_RECLAIM		0x02
- #define SCHED_FLAG_DL_OVERRUN		0x04
 diff --git a/kernel/Kconfig.preempt b/kernel/Kconfig.preempt
 index 88c594c6d7fc..e74f9ff8875c 100644
 --- a/kernel/Kconfig.preempt
 +++ b/kernel/Kconfig.preempt
-@@ -159,20 +159,46 @@ config SCHED_CORE
- 	  matching task is found.
- 
- 	  Use of this feature includes:
- 	   - mitigation of some (not all) SMT side channels;
- 	   - limiting SMT interference to improve determinism and/or performance.
- 
- 	  SCHED_CORE is default disabled. When it is enabled and unused,
+@@ -166,6 +166,32 @@ config SCHED_CORE
  	  which is the likely usage by Linux distributions, there should
  	  be no measurable impact on performance.
  
@@ -306,25 +243,11 @@ index 88c594c6d7fc..e74f9ff8875c 100644
  config SCHED_CLASS_EXT
  	bool "Extensible Scheduling Class"
  	depends on BPF_SYSCALL && BPF_JIT && DEBUG_INFO_BTF
- 	select STACKTRACE if STACKTRACE_SUPPORT
- 	help
- 	  This option enables a new scheduler class sched_ext (SCX), which
- 	  allows scheduling policies to be implemented as BPF programs to
- 	  achieve the following:
- 
- 	  - Ease of experimentation and exploration: Enabling rapid
 diff --git a/kernel/sched/build_policy.c b/kernel/sched/build_policy.c
 index 755883faf751..4b5148f8f3c6 100644
 --- a/kernel/sched/build_policy.c
 +++ b/kernel/sched/build_policy.c
-@@ -50,17 +50,21 @@
- #include "idle.c"
- 
- #include "rt.c"
- #include "cpudeadline.c"
- 
- #include "pelt.c"
- 
+@@ -57,6 +57,10 @@
  #include "cputime.c"
  #include "deadline.c"
  
@@ -335,22 +258,11 @@ index 755883faf751..4b5148f8f3c6 100644
  #ifdef CONFIG_SCHED_CLASS_EXT
  # include "ext_internal.h"
  # include "ext.c"
- # include "ext_idle.c"
- #endif
- 
- #include "syscalls.c"
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index bf948db905ed..ce2f63c1eef3 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -6069,37 +6069,45 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
- 	if (cfs_rq->throttled_clock) {
- 		cfs_b->throttled_time += rq_clock(rq) - cfs_rq->throttled_clock;
- 		cfs_rq->throttled_clock = 0;
- 	}
- 	list_del_rcu(&cfs_rq->throttled_list);
- 	raw_spin_unlock(&cfs_b->lock);
- 
+@@ -6076,9 +6076,12 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
  	/* update hierarchical throttle state */
  	walk_tg_tree_from(cfs_rq->tg, tg_nop, tg_unthrottle_up, (void *)rq);
  
@@ -364,12 +276,7 @@ index bf948db905ed..ce2f63c1eef3 100644
  		/*
  		 * Nothing to run but something to decay (on_list)?
  		 * Complete the branch.
- 		 */
- 		for_each_sched_entity(se) {
- 			if (list_add_leaf_cfs_rq(cfs_rq_of(se)))
- 				break;
- 		}
- 	}
+@@ -6091,8 +6094,13 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
  
  	assert_list_leaf_cfs_rq(rq);
  
@@ -384,21 +291,7 @@ index bf948db905ed..ce2f63c1eef3 100644
  		resched_curr(rq);
  }
  
- static void __cfsb_csd_unthrottle(void *arg)
- {
- 	struct cfs_rq *cursor, *tmp;
- 	struct rq *rq = arg;
- 	struct rq_flags rf;
- 
- 	rq_lock(rq, &rf);
-@@ -8156,27 +8164,28 @@ unsigned long effective_cpu_util(int cpu, unsigned long util_cfs,
- 
- 		/*
- 		 * When an RT task is runnable and uclamp is not used, we must
- 		 * ensure that the task will run at maximum compute capacity.
- 		 */
- 		if (!uclamp_is_used() && rt_rq_is_runnable(&rq->rt))
- 			*min = max(*min, scale);
+@@ -8163,13 +8171,14 @@ unsigned long effective_cpu_util(int cpu, unsigned long util_cfs,
  	}
  
  	/*
@@ -415,21 +308,7 @@ index bf948db905ed..ce2f63c1eef3 100644
  
  	/*
  	 * The maximum hint is a soft bandwidth requirement, which can be lower
- 	 * than the actual utilization because of uclamp_max requirements.
- 	 */
- 	if (max)
- 		*max = min(scale, uclamp_rq_get(rq, UCLAMP_MAX));
- 
- 	if (util >= scale)
- 		return scale;
-@@ -8696,21 +8705,21 @@ static void task_dead_fair(struct task_struct *p)
- 		}
- 		task_rq_unlock(rq, p, &rf);
- 	}
- 
- 	remove_entity_load_avg(se);
- }
- 
+@@ -8703,7 +8712,7 @@ static void task_dead_fair(struct task_struct *p)
  /*
   * Set the max capacity the task is allowed to run at for misfit detection.
   */
@@ -437,13 +316,6 @@ index bf948db905ed..ce2f63c1eef3 100644
 +void set_task_max_allowed_capacity(struct task_struct *p)
  {
  	struct asym_cap_data *entry;
- 
- 	if (!sched_asym_cpucap_active())
- 		return;
- 
- 	rcu_read_lock();
- 	list_for_each_entry_rcu(entry, &asym_cap_list, link) {
- 		cpumask_t *cpumask;
  
 diff --git a/kernel/sched/minlat.c b/kernel/sched/minlat.c
 new file mode 100644
@@ -5286,14 +5158,7 @@ diff --git a/kernel/sched/pelt.c b/kernel/sched/pelt.c
 index 897790889ba3..aac55956a15c 100644
 --- a/kernel/sched/pelt.c
 +++ b/kernel/sched/pelt.c
-@@ -170,21 +170,21 @@ accumulate_sum(u64 delta, struct sched_avg *sa,
-  *
-  * This means that the contribution to load ~32ms ago (u_32) will be weighted
-  * approximately half as much as the contribution to load within the last ms
-  * (u_0).
-  *
-  * When a period "rolls over" and we have new u_0`, multiplying the previous
-  * sum again by y is sufficient to update:
+@@ -177,7 +177,7 @@ accumulate_sum(u64 delta, struct sched_avg *sa,
   *   load_avg = u_0` + y*(u_0 + u_1*y + u_2*y^2 + ... )
   *            = u_0 + u_1*y + u_2*y^2 + ... [re-labeling u_i --> u_{i+1}]
   */
@@ -5302,21 +5167,7 @@ index 897790889ba3..aac55956a15c 100644
  ___update_load_sum(u64 now, struct sched_avg *sa,
  		  unsigned long load, unsigned long runnable, int running)
  {
- 	u64 delta;
- 
- 	delta = now - sa->last_update_time;
- 	/*
- 	 * This should only happen when time goes backwards, which it
- 	 * unfortunately does during sched clock init when we swap over to TSC.
- 	 */
-@@ -247,21 +247,21 @@ ___update_load_sum(u64 now, struct sched_avg *sa,
-  *
-  * because LOAD_AVG_MAX*y == LOAD_AVG_MAX-1024
-  *
-  * The same care must be taken when a sched entity is added, updated or
-  * removed from a cfs_rq and we need to update sched_avg. Scheduler entities
-  * and the cfs rq, to which they are attached, have the same position in the
-  * time segment because they use the same clock. This means that we can use
+@@ -254,7 +254,7 @@ ___update_load_sum(u64 now, struct sched_avg *sa,
   * the period_contrib of cfs_rq when updating the sched_avg of a sched_entity
   * if it's more convenient.
   */
@@ -5325,21 +5176,7 @@ index 897790889ba3..aac55956a15c 100644
  ___update_load_avg(struct sched_avg *sa, unsigned long load)
  {
  	u32 divider = get_pelt_divider(sa);
- 
- 	/*
- 	 * Step 2: update *_avg.
- 	 */
- 	sa->load_avg = div_u64(load * sa->load_sum, divider);
- 	sa->runnable_avg = div_u64(sa->runnable_sum, divider);
- 	WRITE_ONCE(sa->util_avg, sa->util_sum / divider);
-@@ -378,20 +378,46 @@ int update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
- 				running)) {
- 
- 		___update_load_avg(&rq->avg_dl, 1);
- 		trace_pelt_dl_tp(rq);
- 		return 1;
- 	}
- 
+@@ -385,6 +385,32 @@ int update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
  	return 0;
  }
  
@@ -5372,21 +5209,7 @@ index 897790889ba3..aac55956a15c 100644
  #ifdef CONFIG_SCHED_HW_PRESSURE
  /*
   * hardware:
-  *
-  *   load_sum = \Sum se->avg.load_sum but se->avg.load_sum is not tracked
-  *
-  *   util_avg and runnable_load_avg are not supported and meaningless.
-  *
-  * Unlike rt/dl utilization tracking that track time spent by a cpu
-  * running a rt/dl task through util_avg, the average HW pressure is
-@@ -478,13 +504,16 @@ bool update_other_load_avgs(struct rq *rq)
- {
- 	u64 now = rq_clock_pelt(rq);
- 	const struct sched_class *curr_class = rq->donor->sched_class;
- 	unsigned long hw_pressure = arch_scale_hw_pressure(cpu_of(rq));
- 
- 	lockdep_assert_rq_held(rq);
- 
+@@ -485,6 +511,9 @@ bool update_other_load_avgs(struct rq *rq)
  	/* hw_pressure doesn't care about invariance */
  	return update_rt_rq_load_avg(now, rq, curr_class == &rt_sched_class) |
  		update_dl_rq_load_avg(now, rq, curr_class == &dl_sched_class) |
@@ -5400,14 +5223,7 @@ diff --git a/kernel/sched/pelt.h b/kernel/sched/pelt.h
 index f921302dc40f..2c28a194e627 100644
 --- a/kernel/sched/pelt.h
 +++ b/kernel/sched/pelt.h
-@@ -3,20 +3,28 @@
- #define _KERNEL_SCHED_PELT_H
- #include "sched.h"
- 
- #include "sched-pelt.h"
- 
- int __update_load_avg_blocked_se(u64 now, struct sched_entity *se);
- int __update_load_avg_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se);
+@@ -10,6 +10,14 @@ int __update_load_avg_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se
  int __update_load_avg_cfs_rq(u64 now, struct cfs_rq *cfs_rq);
  int update_rt_rq_load_avg(u64 now, struct rq *rq, int running);
  int update_dl_rq_load_avg(u64 now, struct rq *rq, int running);
@@ -5422,21 +5238,7 @@ index f921302dc40f..2c28a194e627 100644
  bool update_other_load_avgs(struct rq *rq);
  
  #ifdef CONFIG_SCHED_HW_PRESSURE
- int update_hw_load_avg(u64 now, struct rq *rq, u64 capacity);
- 
- static inline u64 hw_load_avg(struct rq *rq)
- {
- 	return READ_ONCE(rq->avg_hw.load_avg);
- }
- #else /* !CONFIG_SCHED_HW_PRESSURE: */
-@@ -35,20 +43,24 @@ static inline u64 hw_load_avg(struct rq *rq)
- #ifdef CONFIG_HAVE_SCHED_AVG_IRQ
- int update_irq_load_avg(struct rq *rq, u64 running);
- #else
- static inline int
- update_irq_load_avg(struct rq *rq, u64 running)
- {
- 	return 0;
+@@ -42,6 +50,10 @@ update_irq_load_avg(struct rq *rq, u64 running)
  }
  #endif
  
@@ -5447,21 +5249,7 @@ index f921302dc40f..2c28a194e627 100644
  #define PELT_MIN_DIVIDER	(LOAD_AVG_MAX - 1024)
  
  static inline u32 get_pelt_divider(struct sched_avg *avg)
- {
- 	return PELT_MIN_DIVIDER + avg->period_contrib;
- }
- 
- static inline void cfs_se_util_change(struct sched_avg *avg)
- {
- 	unsigned int enqueued;
-@@ -134,20 +146,23 @@ static inline void update_rq_clock_pelt(struct rq *rq, s64 delta)
-  * For optimization and computing rounding purpose, we don't take into account
-  * the position in the current window (period_contrib) and we use the higher
-  * bound of util_sum to decide.
-  */
- static inline void update_idle_rq_clock_pelt(struct rq *rq)
- {
- 	u32 divider = ((LOAD_AVG_MAX - 1024) << SCHED_CAPACITY_SHIFT) - LOAD_AVG_MAX;
+@@ -141,6 +153,9 @@ static inline void update_idle_rq_clock_pelt(struct rq *rq)
  	u32 util_sum = rq->cfs.avg.util_sum;
  	util_sum += rq->avg_rt.util_sum;
  	util_sum += rq->avg_dl.util_sum;
@@ -5471,25 +5259,11 @@ index f921302dc40f..2c28a194e627 100644
  
  	/*
  	 * Reflecting stolen time makes sense only if the idle
- 	 * phase would be present at max capacity. As soon as the
- 	 * utilization of a rq has reached the maximum value, it is
- 	 * considered as an always running rq without idle time to
- 	 * steal. This potential idle time is considered as lost in
- 	 * this case. We keep track of this lost idle time compare to
- 	 * rq's clock_task.
- 	 */
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 index 43bbf0693cca..f654fa4d77b4 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -208,24 +208,34 @@ static inline int fair_policy(int policy)
- static inline int rt_policy(int policy)
- {
- 	return policy == SCHED_FIFO || policy == SCHED_RR;
- }
- 
- static inline int dl_policy(int policy)
- {
+@@ -215,10 +215,20 @@ static inline int dl_policy(int policy)
  	return policy == SCHED_DEADLINE;
  }
  
@@ -5511,21 +5285,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  }
  
  static inline int task_has_idle_policy(struct task_struct *p)
- {
- 	return idle_policy(p->policy);
- }
- 
- static inline int task_has_rt_policy(struct task_struct *p)
- {
- 	return rt_policy(p->policy);
-@@ -582,20 +592,26 @@ static inline void unregister_fair_sched_group(struct task_group *tg) { }
- extern void init_tg_cfs_entry(struct task_group *tg, struct cfs_rq *cfs_rq,
- 			struct sched_entity *se, int cpu,
- 			struct sched_entity *parent);
- extern void init_cfs_bandwidth(struct cfs_bandwidth *cfs_b, struct cfs_bandwidth *parent);
- 
- extern void __refill_cfs_bandwidth_runtime(struct cfs_bandwidth *cfs_b);
- extern void start_cfs_bandwidth(struct cfs_bandwidth *cfs_b);
+@@ -589,6 +599,12 @@ extern void start_cfs_bandwidth(struct cfs_bandwidth *cfs_b);
  extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
  extern bool cfs_task_bw_constrained(struct task_struct *p);
  
@@ -5538,21 +5298,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq,
  		struct sched_rt_entity *rt_se, int cpu,
  		struct sched_rt_entity *parent);
- extern int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us);
- extern int sched_group_set_rt_period(struct task_group *tg, u64 rt_period_us);
- extern long sched_group_rt_runtime(struct task_group *tg);
- extern long sched_group_rt_period(struct task_group *tg);
- extern int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk);
- 
- extern struct task_group *sched_create_group(struct task_group *parent);
-@@ -911,20 +927,51 @@ struct dl_rq {
- 	 */
- 	u64			max_bw;
- 
- 	/*
- 	 * Inverse of the fraction of CPU utilization that can be reclaimed
- 	 * by the GRUB algorithm.
- 	 */
+@@ -918,6 +934,37 @@ struct dl_rq {
  	u64			bw_ratio;
  };
  
@@ -5590,21 +5336,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  #ifdef CONFIG_FAIR_GROUP_SCHED
  
  /* An entity is a task if it doesn't "own" a runqueue */
- #define entity_is_task(se)	(!se->my_q)
- 
- static inline void se_update_runnable(struct sched_entity *se)
- {
- 	if (!entity_is_task(se))
- 		se->runnable_weight = se->my_q->h_nr_runnable;
- }
-@@ -1170,20 +1217,23 @@ struct rq {
- #define UCLAMP_FLAG_IDLE 0x01
- #endif
- 
- 	struct cfs_rq		cfs;
- 	struct rt_rq		rt;
- 	struct dl_rq		dl;
- #ifdef CONFIG_SCHED_CLASS_EXT
+@@ -1177,6 +1224,9 @@ struct rq {
  	struct scx_rq		scx;
  	struct sched_dl_entity	ext_server;
  #endif
@@ -5614,21 +5346,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  
  	struct sched_dl_entity	fair_server;
  
- #ifdef CONFIG_FAIR_GROUP_SCHED
- 	/* list of leaf cfs_rq on this CPU: */
- 	struct list_head	leaf_cfs_rq_list;
- 	struct list_head	*tmp_alone_branch;
- #endif /* CONFIG_FAIR_GROUP_SCHED */
- 
- #ifdef CONFIG_NUMA_BALANCING
-@@ -2154,20 +2204,22 @@ DECLARE_PER_CPU(struct sched_domain __rcu *, sd_asym_packing);
- DECLARE_PER_CPU(struct sched_domain __rcu *, sd_asym_cpucapacity);
- 
- extern struct static_key_false sched_asym_cpucapacity;
- extern struct static_key_false sched_cluster_active;
- 
- static __always_inline bool sched_asym_cpucap_active(void)
- {
+@@ -2161,6 +2211,8 @@ static __always_inline bool sched_asym_cpucap_active(void)
  	return static_branch_unlikely(&sched_asym_cpucapacity);
  }
  
@@ -5637,21 +5355,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  struct sched_group_capacity {
  	atomic_t		ref;
  	/*
- 	 * CPU capacity of this group, SCHED_CAPACITY_SCALE being max capacity
- 	 * for a single CPU.
- 	 */
- 	unsigned long		capacity;
- 	unsigned long		min_capacity;		/* Min per-CPU capacity in group */
- 	unsigned long		max_capacity;		/* Max per-CPU capacity in group */
- 	unsigned long		next_update;
-@@ -2711,20 +2763,46 @@ const struct sched_class name##_sched_class \
- /* Defined in include/asm-generic/vmlinux.lds.h */
- extern struct sched_class __sched_class_highest[];
- extern struct sched_class __sched_class_lowest[];
- 
- extern const struct sched_class stop_sched_class;
- extern const struct sched_class dl_sched_class;
- extern const struct sched_class rt_sched_class;
+@@ -2718,6 +2770,32 @@ extern const struct sched_class rt_sched_class;
  extern const struct sched_class fair_sched_class;
  extern const struct sched_class idle_sched_class;
  
@@ -5684,21 +5388,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  /*
   * Iterate only active classes. SCX can take over all fair tasks or be
   * completely disabled. If the former, skip fair. If the latter, skip SCX.
-  */
- static inline const struct sched_class *next_active_class(const struct sched_class *class)
- {
- 	class++;
- #ifdef CONFIG_SCHED_CLASS_EXT
- 	if (scx_switched_all() && class == &fair_sched_class)
- 		class++;
-@@ -2772,20 +2850,47 @@ static inline bool sched_dl_runnable(struct rq *rq)
- static inline bool sched_rt_runnable(struct rq *rq)
- {
- 	return rq->rt.rt_queued > 0;
- }
- 
- static inline bool sched_fair_runnable(struct rq *rq)
- {
+@@ -2779,6 +2857,33 @@ static inline bool sched_fair_runnable(struct rq *rq)
  	return rq->cfs.nr_queued > 0;
  }
  
@@ -5732,21 +5422,7 @@ index 43bbf0693cca..f654fa4d77b4 100644
  extern struct task_struct *pick_next_task_fair(struct rq *rq, struct task_struct *prev,
  					       struct rq_flags *rf);
  extern struct task_struct *pick_task_idle(struct rq *rq, struct rq_flags *rf);
- 
- #define SCA_CHECK		0x01
- #define SCA_MIGRATE_DISABLE	0x02
- #define SCA_MIGRATE_ENABLE	0x04
- #define SCA_USER		0x08
- 
- extern void update_group_capacity(struct sched_domain *sd, int cpu);
-@@ -3521,20 +3626,38 @@ static inline unsigned long cpu_util_dl(struct rq *rq)
- 
- 
- extern unsigned long cpu_util_cfs(int cpu);
- extern unsigned long cpu_util_cfs_boost(int cpu);
- 
- static inline unsigned long cpu_util_rt(struct rq *rq)
- {
+@@ -3528,6 +3633,24 @@ static inline unsigned long cpu_util_rt(struct rq *rq)
  	return READ_ONCE(rq->avg_rt.util_avg);
  }
  
@@ -5771,13 +5447,6 @@ index 43bbf0693cca..f654fa4d77b4 100644
  #ifdef CONFIG_UCLAMP_TASK
  
  unsigned long uclamp_eff_value(struct task_struct *p, enum uclamp_id clamp_id);
- 
- /*
-  * When uclamp is compiled in, the aggregation at rq level is 'turned off'
-  * by default in the fast path and only gets turned on once userspace performs
-  * an operation that requires it.
-  *
-  * Returns true if userspace opted-in to use uclamp and aggregation at rq level
 -- 
-2.52.0
+2.53.0
 

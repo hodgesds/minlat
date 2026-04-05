@@ -1,7 +1,7 @@
 From 368e308e1a4ce62b67b5a17afeb20979b4dfbe28 Mon Sep 17 00:00:00 2001
 From: Daniel Hodges <hodgesd@meta.com>
 Date: Tue, 31 Mar 2026 06:11:51 -0700
-Subject: [PATCH 3/4] sched/debug: Add MINLAT debugfs tunables and statistics
+Subject: [PATCH 3/5] sched/debug: Add MINLAT debugfs tunables and statistics
 
 Add debugfs interface for runtime tuning and observability of the
 MINLAT scheduling class.
@@ -35,14 +35,7 @@ diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
 index b24f40f05019..2257e203eed2 100644
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
-@@ -625,20 +625,60 @@ static __init int sched_init_debug(void)
- 	debugfs_create_u32("hot_threshold_ms", 0644, numa, &sysctl_numa_balancing_hot_threshold);
- #endif /* CONFIG_NUMA_BALANCING */
- 
- 	debugfs_create_file("debug", 0444, debugfs_sched, NULL, &sched_debug_fops);
- 
- 	debugfs_fair_server_init();
- #ifdef CONFIG_SCHED_CLASS_EXT
+@@ -632,6 +632,46 @@ static __init int sched_init_debug(void)
  	debugfs_ext_server_init();
  #endif
  
@@ -89,21 +82,7 @@ index b24f40f05019..2257e203eed2 100644
  	return 0;
  }
  late_initcall(sched_init_debug);
- 
- static cpumask_var_t		sd_sysctl_cpus;
- 
- static int sd_flags_show(struct seq_file *m, void *v)
- {
- 	unsigned long flags = *(unsigned int *)m->private;
- 	int idx;
-@@ -892,20 +932,73 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
- 	rcu_read_lock();
- 	for_each_process_thread(g, p) {
- 		if (task_cpu(p) != rq_cpu)
- 			continue;
- 
- 		print_task(m, rq, p);
- 	}
+@@ -899,6 +939,59 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
  	rcu_read_unlock();
  }
  
@@ -163,21 +142,7 @@ index b24f40f05019..2257e203eed2 100644
  void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
  {
  	s64 left_vruntime = -1, zero_vruntime, right_vruntime = -1, left_deadline = -1, spread;
- 	struct sched_entity *last, *first, *root;
- 	struct rq *rq = cpu_rq(cpu);
- 	unsigned long flags;
- 
- #ifdef CONFIG_FAIR_GROUP_SCHED
- 	SEQ_printf(m, "\n");
- 	SEQ_printf_task_group_path(m, cfs_rq->tg, "cfs_rq[%d]:%s\n", cpu);
-@@ -1068,20 +1161,23 @@ do {									\
- #define P(n) SEQ_printf(m, "  .%-30s: %d\n", #n, schedstat_val(rq->n));
- 	if (schedstat_enabled()) {
- 		P(yld_count);
- 		P(sched_count);
- 		P(sched_goidle);
- 		P(ttwu_count);
- 		P(ttwu_local);
+@@ -1075,6 +1168,9 @@ do {									\
  	}
  #undef P
  
@@ -187,13 +152,6 @@ index b24f40f05019..2257e203eed2 100644
  	print_cfs_stats(m, cpu);
  	print_rt_stats(m, cpu);
  	print_dl_stats(m, cpu);
- 
- 	print_rq(m, rq, cpu);
- 	SEQ_printf(m, "\n");
- }
- 
- static const char *sched_tunable_scaling_names[] = {
- 	"none",
 -- 
-2.52.0
+2.53.0
 

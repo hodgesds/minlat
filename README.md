@@ -30,8 +30,8 @@ Key mechanisms:
 - **Delayed dequeue**: Short-running tasks (IPC pattern: pipe, futex, message
   passing) stay on the runqueue after sleeping. When they wake up,
   `ttwu_runnable()` re-enables them in O(1) without the full `try_to_wake_up`
-  path. Capped at 2 delayed entities per CPU to bound scan cost and prevent
-  migration starvation.
+  path. Capped at `max(2, nr_running/4)` delayed entities per CPU to bound
+  scan cost while scaling with queue depth.
 
 - **Wakeup buddy**: `WF_SYNC` wakeups (where the waker is about to sleep) set
   the wakee as a "buddy." The `__pick_next_task` fast path picks the buddy in
@@ -129,7 +129,7 @@ scaling of:
 
 ```bash
 cd /path/to/linux
-git am ~/minlat/patches/000[1-4]-*.patch
+git am ~/minlat/patches/000[1-5]-*.patch
 ```
 
 ### Configure
@@ -193,12 +193,20 @@ All tunables are in `/sys/kernel/debug/sched/minlat/`:
 | `numa_saturated_pct` | 75 | NUMA saturation threshold (%) |
 | `interactive_big_prefer` | 0 | Prefer big cores for interactive tasks |
 | `compute_big_prefer` | 0 | Prefer big cores for compute tasks |
+| `preempt_resist_ns` | 2000000 | Min runtime before preemption allowed (ns) |
 
 ### Explicit Policy
 
-Tasks can be explicitly assigned to MINLAT with a specific priority:
+When MINLAT is enabled, all `SCHED_NORMAL`/`SCHED_BATCH`/`SCHED_IDLE` tasks
+are automatically scheduled by MINLAT. To explicitly set the `SCHED_MINLAT`
+policy (policy 8) with a specific priority (0-7, 0 = highest), use
+`sched_setattr()` directly since standard `chrt` has no support for it:
 
-```bash
-# Set task to SCHED_MINLAT with priority 0 (highest)
-chrt -o 0 <command>
+```c
+struct sched_attr attr = {
+    .size = sizeof(attr),
+    .sched_policy = 8,       /* SCHED_MINLAT */
+    .sched_priority = 0,     /* 0 = highest, 7 = lowest */
+};
+sched_setattr(pid, &attr, 0);
 ```
